@@ -5,6 +5,7 @@ import urllib.request
 import urllib.parse
 import subprocess
 import datetime
+import concurrent.futures
 
 
 hosts = [
@@ -14,10 +15,23 @@ hosts = [
 	'rpodgorny.podgorny.cz',
 	'simir.podgorny.cz',
 ]
+for i in range(200): hosts.append('mj%d.asterix.cz' % i)
+
+contains = [
+	('https://wheelcat.cz', 'Adama Musila'),
+]
+
 
 
 def ping(host):
-	cmd = 'ping6 -c 4 %s' % host
+	cmd = 'ping6 -c 4 %s >/dev/null 2>&1' % host
+	res = subprocess.call(cmd, shell=True)
+	return res == 0
+#enddef
+
+
+def url_contains(url, s):
+	cmd = 'curl "%s" 2>/dev/null | grep "%s" >/dev/null 2>&1' % (url, s)
 	res = subprocess.call(cmd, shell=True)
 	return res == 0
 #enddef
@@ -40,25 +54,56 @@ def send(src, dst, dt, key, value):
 
 
 def main():
+	data = []
+	ex = concurrent.futures.ThreadPoolExecutor(20)
+
 	while 1:
-		data = []
+		fs = {}
 
 		for host in hosts:
 			src = 'test'
 			dst = host
 			dt = datetime.datetime.now()
 
-			res = ping(host)
+			#res = ping(host)
+			f = ex.submit(ping, host)
+			fs[f] = ('ping', src, dst, dt)
+			#print('%s %s' % (host, res))
 
-			data.append((src, dst, dt, 'ping', res))
+			#data.append((src, dst, dt, 'ping', res))
 		#endfor
 
-		for d in data:
-			send(*d)
+		for url, s in contains:
+			src = 'test'
+			dst = url
+			dt = datetime.datetime.now()
+
+			f = ex.submit(url_contains, url, s)
+			fs[f] = ('url_contains', src, dst, dt)
 		#endfor
 
+		for f in concurrent.futures.as_completed(fs.keys()):
+			action, src, dst, dt = fs[f]
+			res = f.result()
+			data.append((src, dst, dt, action, res))
+			print('%s %s %s' % (action, dst, res))
+		#endfor
+
+		try:
+			for d in data:
+				send(*d)
+			#endfor
+
+			data = []
+		except:
+			print('failed to send data')
+		#endtry
+
+		print('data size is %d, sleeping' % len(data))
 		time.sleep(60)
 	#endwhile
+
+	ex.shutdown()
 #enddef
 
 
