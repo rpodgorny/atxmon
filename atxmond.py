@@ -7,6 +7,7 @@ import cherrypy
 class AtxMonServer:
 	def __init__(self):
 		self.data = []
+		self.data_last = {}
 	#enddef
 
 	@cherrypy.expose
@@ -15,15 +16,17 @@ class AtxMonServer:
 	#enddef
 
 	@cherrypy.expose
-	def save(self, src, dst, datetime, key, value):
-		p = (src, dst, datetime, key, value)
+	def save(self, src, dst, datetime, test, result_name, result_value):
+		p = (src, dst, datetime, test, result_name, result_value)
 		self.data.append(p)
+		self.data_last[(src, dst, test, result_name)] = (datetime, result_value)
 		return str(p)
 	#enddef
 
 	@cherrypy.expose
+	@cherrypy.tools.json_out()
 	def show(self):
-		return str(self.data)
+		return {'%s/%s/%s/%s' % (k[0], k[1], k[2], k[3]): v for k, v in self.data_last.items()}
 	#enddef
 #endclass
 

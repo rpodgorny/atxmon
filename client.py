@@ -8,6 +8,7 @@ import datetime
 import concurrent.futures
 import json
 import re
+import sys
 
 
 pings = [
@@ -30,7 +31,7 @@ iperfs = [
 
 
 def ping(host):
-	cmd = 'ping6 -c 10 -q %s 2>/dev/null' % host
+	cmd = 'ping6 -c 5 -q %s 2>/dev/null' % host
 	try:
 		out = subprocess.check_output(cmd, shell=True).decode()
 	except:
@@ -58,8 +59,15 @@ def ping(host):
 
 
 def iperf3(host):
-	cmd = 'iperf3 -c %s -J -R -P 5' % host
-	out = subprocess.check_output(cmd, shell=True).decode()
+	#cmd = 'iperf3 -c %s -J -R -P 5' % host
+	cmd = 'timeout 20 iperf3 -c %s -J -R -P 5' % host
+
+	try:
+		out = subprocess.check_output(cmd, shell=True).decode()
+	except:
+		return {}
+	#endtry
+
 	res = json.loads(out)
 	ret = res['end']['sum_received']['bits_per_second']
 	return {'bits_per_second': ret}
@@ -73,15 +81,16 @@ def url_contains(url, s):
 #enddef
 
 
-def send(src, dst, dt, key, value):
+def send(src, dst, dt, test, result_name, result_value):
 	url = 'http://localhost:8755/save'
 
 	d = {
 		'src': src,
 		'dst': dst,
 		'datetime': dt,
-		'key': key,
-		'value': value,
+		'test': test,
+		'result_name': result_name,
+		'result_value': result_value,
 	}
 	url = '%s?%s' % (url, urllib.parse.urlencode(d, True))
 
@@ -124,6 +133,9 @@ def main():
 		#endfor
 
 		for f in concurrent.futures.as_completed(fs.keys()):
+			sys.stdout.write('.')
+			sys.stdout.flush()
+
 			action, src, dst, dt = fs[f]
 			res = f.result()
 
@@ -132,6 +144,8 @@ def main():
 				print('%s %s %s %s' % (action, dst, k, v))
 			#endfor
 		#endfor
+
+		print('tests finished')
 
 		try:
 			for d in data:
