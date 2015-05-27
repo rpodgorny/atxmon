@@ -1,41 +1,56 @@
 #!/usr/bin/python3
 
 import sys
-import cherrypy
+import flask
+import json
+import datetime
 
+app = flask.Flask(__name__)
+data = []
+data_last = {}
 
-class AtxMonServer:
-	def __init__(self):
-		self.data = []
-		self.data_last = {}
-	#enddef
+@app.route('/')
+def index():
+	return 'index'
+#enddef
 
-	@cherrypy.expose
-	def index(self):
-		return 'index'
-	#enddef
+@app.route('/save_old')
+def save_old():
+	k = flask.request.args.get('k')
+	v = flask.request.args.get('v')
+	t = float(flask.request.args.get('t'))
+	p = (k, v, t)
+	data.append(p)
+	data_last[k] = (v, t)
+	return str(p)
+#enddef
 
-	@cherrypy.expose
-	def save(self, src, dst, datetime, test, result_name, result_value):
-		p = (src, dst, datetime, test, result_name, result_value)
-		self.data.append(p)
-		self.data_last[(src, dst, test, result_name)] = (datetime, result_value)
-		return str(p)
-	#enddef
+@app.route('/save', methods=['GET', 'POST'])
+def save_many():
+	d = flask.request.get_json(force=True)
+	print('will save %s entries' % len(d))
 
-	@cherrypy.expose
-	@cherrypy.tools.json_out()
-	def show(self):
-		return {'%s/%s/%s/%s' % (k[0], k[1], k[2], k[3]): v for k, v in self.data_last.items()}
-	#enddef
-#endclass
+	data.extend(d)
+	for k, v, t in d:
+		data_last[k] = (v, t)
+	#endfor
+	return 'ok'
+#enddef
+
+@app.route('/show')
+def show():
+	x = []
+	for k in sorted(data_last.keys()):
+		v, t = data_last[k]
+		t = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M:%S')
+		x.append((k, v, t))
+	#endfor
+
+	return flask.render_template('show.html', data_last=x)
+#enddef
 
 def main():
-	cherrypy.server.socket_host = '0.0.0.0'
-	cherrypy.server.socket_port = 8755
-
-	s = AtxMonServer()
-	cherrypy.quickstart(s)
+	app.run(host='::', threaded=True, debug=True)
 #enddef
 
 if __name__ == '__main__':

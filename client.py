@@ -1,46 +1,60 @@
 #!/usr/bin/python
 
 import time
-import urllib.request
-import urllib.parse
+import requests
 import subprocess
-import datetime
-import concurrent.futures
 import json
 import re
 import sys
+import socket
+from utils import *
+import jinja2
+import threading
+import random
 
 
-pings = [
-	'milan.podgorny.cz',
-	'mrtvola.asterix.cz',
-	'root.cz',
-	'rpodgorny.podgorny.cz',
-	'simir.podgorny.cz',
-]
-for i in range(200): pings.append('mj%d.asterix.cz' % i)
-
-contains = [
-	('https://wheelcat.cz', 'Adama Musila'),
-]
-
-iperfs = [
-	'admiral.podgorny.cz',
-]
+SERVER_URL = 'http://localhost:5000/save'
+TESTS_FN = 'tests.conf'
+SEND_INTERVAL = 20
 
 
+def load_tests(fn):
+	ret = []
 
-def ping(host):
-	cmd = 'ping6 -c 5 -q %s 2>/dev/null' % host
+	with open(fn, 'r') as f:
+		t = jinja2.Template(f.read())
+		rendered = t.render()
+	#endwith
+
+	for line in rendered.splitlines():
+		line = line.strip()
+		if not line: continue
+		if line.startswith('#'): continue
+		interval, test, *args = line.split(';')
+		interval = float(interval)
+		ret.append((interval, test, args))
+	#endfor
+
+	return ret
+#enddef
+
+
+def ping(host, ipv6=False):
+	if ipv6:
+		cmd = 'ping6 -c 5 -q %s 2>/dev/null' % host
+	else:
+		cmd = 'ping -c 5 -q %s 2>/dev/null' % host
+	#endif
+
 	try:
 		out = subprocess.check_output(cmd, shell=True).decode()
 	except:
-		return {}
+		return {'ok': 0}
 	#endtry
 
 	packet_loss = None
 	rtt_avg = None
-	for line in out.split('\n'):
+	for line in out.splitlines():
 		if 'packet loss' in line:
 			# TODO: compile this?
 			m = re.match('.+, (\d+)% packet loss,.+', line)
@@ -54,114 +68,142 @@ def ping(host):
 		#endif
 	#endfor
 
-	return {'packet_loss': packet_loss, 'rtt_avg': rtt_avg}
+	return {'ok': 1, 'packet_loss': packet_loss, 'rtt_avg': rtt_avg}
+#enddef
+
+
+def ping6(host):
+	return ping(host, ipv6=True)
 #enddef
 
 
 def iperf3(host):
-	#cmd = 'iperf3 -c %s -J -R -P 5' % host
-	cmd = 'timeout 20 iperf3 -c %s -J -R -P 5' % host
+	ret = {}
+	ok = 1
 
-	try:
-		out = subprocess.check_output(cmd, shell=True).decode()
-	except:
-		return {}
-	#endtry
+	for direction in ['up', 'down']:
+		if direction == 'down':
+			cmd = 'timeout 20 iperf3 -c %s -J -R -P 5' % host
+		else:
+			cmd = 'timeout 20 iperf3 -c %s -J -P 5' % host
+		#endif
 
-	res = json.loads(out)
-	ret = res['end']['sum_received']['bits_per_second']
-	return {'bits_per_second': ret}
+		try:
+			out = subprocess.check_output(cmd, shell=True).decode()
+			res = json.loads(out)
+			bits_per_second = res['end']['sum_received']['bits_per_second']
+			ret['%s/bits_per_second' % direction] = bits_per_second
+		except:
+			ok = 0
+		#endtry
+	#endfor
+
+	ret['ok'] = ok
+	return ret
 #enddef
 
 
-def url_contains(url, s):
-	cmd = 'curl "%s" 2>/dev/null | grep "%s" >/dev/null 2>&1' % (url, s)
-	res = subprocess.call(cmd, shell=True)
-	return {'ok': res == 0}
+def url_contains(url, contains=None):
+	r = requests.get(url)
+
+	if contains in r.text:
+		ok = 1
+	else:
+		ok = 0
+	#endif
+
+	return {'ok': ok}
 #enddef
 
 
-def send(src, dst, dt, test, result_name, result_value):
-	url = 'http://localhost:8755/save'
-
-	d = {
-		'src': src,
-		'dst': dst,
-		'datetime': dt,
-		'test': test,
-		'result_name': result_name,
-		'result_value': result_value,
-	}
-	url = '%s?%s' % (url, urllib.parse.urlencode(d, True))
-
-	u = urllib.request.urlopen(url).read().decode('utf-8')
+def send(url, data):
+	requests.post(url, data=json.dumps(data))
 #enddef
+
+
+class TestThread(threading.Thread):
+	def __init__(self, fn, *args):
+		threading.Thread.__init__(self)
+
+		self.fn = fn
+		self.args = args
+		self.res = None
+	#enddef
+
+	def run(self):
+		self.res = self.fn(*self.args)
+	#enddef
+#endclass
+
+
+TEST_MAP = {
+	'ping': ping,
+	'ping6': ping6,
+	'url_contains': url_contains,
+	'iperf3': iperf3,
+}
 
 
 def main():
 	data = []
-	ex = concurrent.futures.ThreadPoolExecutor(20)
+	last_sent = 0
+
+	src = socket.gethostname()
+	tests = load_tests(TESTS_FN)
+
+	threads = {}
+
+	last_run = {}
+	for interval, test, args in tests:
+		test_name = '%s/%s/%s' % (src, test, '/'.join(args))
+		last_run[test_name] = time.time() - interval * random.random()
+	#endfor
 
 	while 1:
-		fs = {}
+		t = time.time()
 
-		for host in pings:
-			src = 'test'
-			dst = host
-			dt = datetime.datetime.now()
+		for test_name, thr in threads.copy().items():
+			if thr.is_alive(): continue
+			res = thr.res
+			if res is None: continue
 
-			f = ex.submit(ping, host)
-			fs[f] = ('ping', src, dst, dt)
-		#endfor
-
-		for url, s in contains:
-			src = 'test'
-			dst = url
-			dt = datetime.datetime.now()
-
-			f = ex.submit(url_contains, url, s)
-			fs[f] = ('url_contains', src, dst, dt)
-		#endfor
-
-		for host in iperfs:
-			src = 'test'
-			dst = host
-			dt = datetime.datetime.now()
-
-			f = ex.submit(iperf3, host)
-			fs[f] = ('iperf3', src, dst, dt)
-		#endfor
-
-		for f in concurrent.futures.as_completed(fs.keys()):
-			sys.stdout.write('.')
-			sys.stdout.flush()
-
-			action, src, dst, dt = fs[f]
-			res = f.result()
-
-			for k, v in res.items():
-				data.append((src, dst, dt, action, k, v))
-				print('%s %s %s %s' % (action, dst, k, v))
-			#endfor
-		#endfor
-
-		print('tests finished')
-
-		try:
-			for d in data:
-				send(*d)
+			for res_name, v in res.items():
+				k_full = '%s/%s' % (test_name, res_name)
+				data.append((k_full, v, t))
+				print('%s=%s' % (k_full, v))
 			#endfor
 
-			data = []
-		except:
-			print('failed to send data')
-		#endtry
+			thr.join()
+			del threads[test_name]
+		#endfor
 
-		print('data size is %d, sleeping' % len(data))
-		time.sleep(60)
+		for interval, test, args in tests:
+			test_name = '%s/%s/%s' % (src, test, '/'.join(args))
+
+			if t < last_run[test_name] + interval: continue
+			if len(threads) >= 10: break
+
+			print('--> %s (%s)' % (test_name, len(threads)))
+
+			fn = TEST_MAP[test]
+			thr = TestThread(fn, *args)
+			thr.start()
+			threads[test_name] = thr
+			last_run[test_name] = t
+		#endfor
+
+		if data and t > last_sent + SEND_INTERVAL:
+			try:
+				send(SERVER_URL, data)
+				data = []
+				last_sent = t
+			except Exception as e:
+				print('failed to send data: %s -> %s' % (str(e), len(data)))
+			#endtry
+		#endif
+
+		time.sleep(1)
 	#endwhile
-
-	ex.shutdown()
 #enddef
 
 
