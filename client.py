@@ -16,6 +16,7 @@ import random
 SERVER_URL = 'http://localhost:5000/save'
 TESTS_FN = 'tests.conf'
 SEND_INTERVAL = 20
+TESTS_MAX = 10  # TODO: rename to THREADS_MAX?
 
 
 def load_tests(fn):
@@ -34,6 +35,20 @@ def load_tests(fn):
 		interval = float(interval)
 		ret.append((interval, test, args))
 	#endfor
+
+	return ret
+#enddef
+
+
+def load():
+	ret = {}
+
+	with open('/proc/loadavg', 'r') as f:
+		loads = [float(i) for i in f.read().split()[:3]]
+		ret['1min'] = loads[0]
+		ret['5min'] = loads[1]
+		ret['15min'] = loads[2]
+	#endwith
 
 	return ret
 #enddef
@@ -137,6 +152,7 @@ class TestThread(threading.Thread):
 
 
 TEST_MAP = {
+	'load': load,
 	'ping': ping,
 	'ping6': ping6,
 	'url_contains': url_contains,
@@ -155,7 +171,12 @@ def main():
 
 	last_run = {}
 	for interval, test, args in tests:
-		test_name = '%s/%s/%s' % (src, test, '/'.join(args))
+		# TODO: cut-n-pasted to below
+		test_name = '%s/%s' % (src, test)
+		if args:
+			test_name = '%s/%s' % (test_name, '/'.join(args))
+		#endif
+
 		last_run[test_name] = time.time() - interval * random.random()
 	#endfor
 
@@ -178,12 +199,16 @@ def main():
 		#endfor
 
 		for interval, test, args in tests:
-			test_name = '%s/%s/%s' % (src, test, '/'.join(args))
+			# TODO: cut-n-pasted from above
+			test_name = '%s/%s' % (src, test)
+			if args:
+				test_name = '%s/%s' % (test_name, '/'.join(args))
+			#endif
 
 			if t < last_run[test_name] + interval: continue
-			if len(threads) >= 10: break
+			if len(threads) >= TESTS_MAX: break
 
-			print('--> %s (%s)' % (test_name, len(threads)))
+			print('--> %s (%s/%s)' % (test_name, len(threads) + 1, TESTS_MAX))
 
 			fn = TEST_MAP[test]
 			thr = TestThread(fn, *args)
