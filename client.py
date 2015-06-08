@@ -13,7 +13,7 @@ import threading
 import random
 
 
-SERVER_URL = 'http://localhost:5000/save'
+SERVER_URL = 'http://admiral.podgorny.cz:5000/save'
 TESTS_FN = 'tests.conf'
 SEND_INTERVAL = 20
 TESTS_MAX = 10  # TODO: rename to THREADS_MAX?
@@ -29,10 +29,17 @@ def load_tests(fn):
 
 	for line in rendered.splitlines():
 		line = line.strip()
+
 		if not line: continue
 		if line.startswith('#'): continue
+
 		interval, test, *args = line.split(';')
-		interval = float(interval)
+		if interval.endswith('m'):
+			interval = float(interval[:-1]) * 60
+		else:
+			interval = float(interval)
+		#endif
+
 		ret.append((interval, test, args))
 	#endfor
 
