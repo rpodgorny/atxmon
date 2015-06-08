@@ -4,7 +4,7 @@
 <table>
 {% for k, v, t in data_last %}
 	<tr>
-		<td>{{ k }}</td><td>{{ v }}</td><td>{{ t }}</td>
+		<td>{{ k }}</td><td>{{ v }}</td><td>{{ t }}</td><td><a href="show_last/{{ k|urlencode() }}">last</a></td>
 	</tr>
 {% endfor %}
 </table>

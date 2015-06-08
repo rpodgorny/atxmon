@@ -11,11 +11,18 @@ import time
 import os
 
 
+HISTORY_LEN = 10
+
 # TODO: globals are shit
 app = flask.Flask(__name__)
 data = []
 data_last = {}
 
+
+# TODO: ugly name, ugly functionality
+def normalize(s):
+	return s.replace('/', '__').replace(' ', '_').replace(':', '_')
+#enddef
 
 @app.route('/')
 def index():
@@ -28,7 +35,7 @@ def save_old():
 	v = flask.request.args.get('v')
 	t = float(flask.request.args.get('t'))
 	p = (k, v, t)
-	data.append(p)
+	#data.append(p)
 	data_last[k] = (v, t)
 	return str(p)
 #enddef
@@ -39,9 +46,13 @@ def save_many():
 	print('will save %s entries' % len(d))
 
 	data.extend(d)
+
 	for k, v, t in d:
-		data_last[k] = (v, t)
+		if not k in data_last: data_last[k] = []
+		data_last[k].insert(0, (v, t))
+		data_last[k] = data_last[k][:HISTORY_LEN]
 	#endfor
+
 	return 'ok'
 #enddef
 
@@ -49,12 +60,23 @@ def save_many():
 def show():
 	x = []
 	for k in sorted(data_last.keys()):
-		v, t = data_last[k]
+		v, t = data_last[k][0]
 		t = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M:%S')
 		x.append((k, v, t))
 	#endfor
 
 	return flask.render_template('show.html', data_last=x)
+#enddef
+
+@app.route('/show_last/<path:test>')
+def show_last(test):
+	x = []
+	for v, t in data_last[test]:
+		t = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M:%S')
+		x.append((v, t))
+	#endfor
+
+	return flask.render_template('show_last.html', data_last=x)
 #enddef
 
 class MyThread(threading.Thread):
@@ -72,7 +94,7 @@ class MyThread(threading.Thread):
 				k, v, t = data.pop(0)
 				print(k, v, t)
 
-				fn = '%s' % k.replace('/', '__').replace(' ', '_').replace(':', '_')
+				fn = normalize(k)
 
 				if not os.path.isfile('rrd/%s.rrd' % fn):
 					cmd = 'rrdtool create rrd/%s.rrd --start 0 --step 1s DS:xxx:GAUGE:2s:U:U RRA:AVERAGE:0.999:1m:1h RRA:AVERAGE:0.999:1h:1d RRA:AVERAGE:0.999:1d:1M' % (fn, )
