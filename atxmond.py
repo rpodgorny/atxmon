@@ -9,6 +9,7 @@ import subprocess
 import logging
 import time
 import os
+import re
 
 
 HISTORY_LEN = 10
@@ -22,6 +23,22 @@ data_last = {}
 # TODO: ugly name, ugly functionality
 def normalize(s):
 	return s.replace('/', '__').replace(' ', '_').replace(':', '_')
+#enddef
+
+def load_alerts(fn):
+	ret = []
+	with open(fn, 'r') as f:
+		for line in f:
+			line = line.strip()
+			if not line: continue
+
+			reg_exp, operator, value = line.split(' ')
+			value = int(value)
+
+			ret.append((reg_exp, operator, value))
+		#endfor
+	#endwith
+	return ret
 #enddef
 
 @app.route('/')
@@ -47,7 +64,10 @@ def save_many():
 
 	data.extend(d)
 
-	for k, v, t in d:
+	for i in d:
+		k = i['path']
+		v = i['value']
+		t = i['time']
 		if not k in data_last: data_last[k] = []
 		data_last[k].insert(0, (v, t))
 		data_last[k] = data_last[k][:HISTORY_LEN]
@@ -68,6 +88,33 @@ def show():
 	return flask.render_template('show.html', data_last=x)
 #enddef
 
+@app.route('/alerts')
+def alerts():
+	alerts = load_alerts('alerts.conf')
+
+	x = []
+	for reg_exp, operator, value in alerts:
+		for k in sorted(data_last.keys()):
+			if not re.match(reg_exp, k): continue
+
+			v, t = data_last[k][0]
+
+			if operator == '==':
+				if v != value: continue
+			elif operator == '!=':
+				if v == value: continue
+			else:
+				raise Exception('unknown operator %s' % operator)
+			#endif
+
+			t = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M:%S')
+			x.append((k, v, t))
+		#endfor
+	#endfor
+
+	return flask.render_template('alerts.html', data_last=x)
+#enddef
+
 @app.route('/show_last/<path:test>')
 def show_last(test):
 	x = []
@@ -81,7 +128,7 @@ def show_last(test):
 
 class MyThread(threading.Thread):
 	def __init__(self):
-		threading.Thread.__init__(self)
+		threading.Thread.__init__(self, daemon=False)
 
 		self._run = True
 	#enddef
@@ -91,26 +138,47 @@ class MyThread(threading.Thread):
 
 		while self._run:
 			while data:
-				k, v, t = data.pop(0)
-				print(k, v, t)
+				i = data.pop(0)
+				k = i['path']
+				v = i['value']
+				t = i['time']
+				interval = i['interval']
+				print(k, v, t, interval)
 
 				fn = normalize(k)
 
 				if not os.path.isfile('rrd/%s.rrd' % fn):
-					cmd = 'rrdtool create rrd/%s.rrd --start 0 --step 1s DS:xxx:GAUGE:2s:U:U RRA:AVERAGE:0.999:1m:1h RRA:AVERAGE:0.999:1h:1d RRA:AVERAGE:0.999:1d:1M' % (fn, )
+					cmd = 'rrdtool create rrd/%s.rrd --start 0 --step %d DS:xxx:GAUGE:%d:U:U' % (fn, interval, interval * 2)
+					cmd += ' RRA:AVERAGE:0.999:1:100 RRA:AVERAGE:0.999:100:100'
 					print(cmd)
 					subprocess.check_call(cmd, shell=True)
 				#endif
 
-				cmd = 'rrdtool update rrd/%s.rrd %d:%s' % (fn, int(t - 1), v)
-				print(cmd)
-				subprocess.check_call(cmd, shell=True)
+				#cmd = 'rrdtool update rrd/%s.rrd %d:%s' % (fn, int(t - 1), v)
+				#print(cmd)
+				#subprocess.check_call(cmd, shell=True)
 
 				cmd = 'rrdtool update rrd/%s.rrd %d:%s' % (fn, int(t), v)
 				print(cmd)
 				subprocess.check_call(cmd, shell=True)
 
-				cmd = 'rrdtool graph png/%s.png --end now --start end-10m --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
+				cmd = 'rrdtool graph png/%s__10min.png --end now --start end-10m --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
+				print(cmd)
+				subprocess.check_call(cmd, shell=True)
+
+				cmd = 'rrdtool graph png/%s__1h.png --end now --start end-1h --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
+				print(cmd)
+				subprocess.check_call(cmd, shell=True)
+
+				cmd = 'rrdtool graph png/%s__1d.png --end now --start end-1d --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
+				print(cmd)
+				subprocess.check_call(cmd, shell=True)
+
+				cmd = 'rrdtool graph png/%s__1w.png --end now --start end-1w --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
+				print(cmd)
+				subprocess.check_call(cmd, shell=True)
+
+				cmd = 'rrdtool graph png/%s__1m.png --end now --start end-1M --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
 				print(cmd)
 				subprocess.check_call(cmd, shell=True)
 			#endwhile
@@ -125,6 +193,9 @@ class MyThread(threading.Thread):
 		self._run = False
 	#enddef
 #endclass
+
+# TODO: globals are shit!!!
+alerts = load_alerts('alerts.conf')
 
 def main():
 	logging.basicConfig(level='DEBUG')
