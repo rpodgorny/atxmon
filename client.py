@@ -144,9 +144,10 @@ def send(url, data):
 
 
 class TestThread(threading.Thread):
-	def __init__(self, fn, *args):
+	def __init__(self, interval, fn, *args):
 		threading.Thread.__init__(self)
 
+		self.interval = interval
 		self.fn = fn
 		self.args = args
 		self.res = None
@@ -192,12 +193,15 @@ def main():
 
 		for test_name, thr in threads.copy().items():
 			if thr.is_alive(): continue
+
 			res = thr.res
+			interval = thr.interval
+
 			if res is None: continue
 
 			for res_name, v in res.items():
 				k_full = '%s/%s' % (test_name, res_name)
-				data.append((k_full, v, t))
+				data.append({'path': k_full, 'value': v, 'time': t, 'interval': interval})
 				print('%s=%s' % (k_full, v))
 			#endfor
 
@@ -218,7 +222,7 @@ def main():
 			print('--> %s (%s/%s)' % (test_name, len(threads) + 1, TESTS_MAX))
 
 			fn = TEST_MAP[test]
-			thr = TestThread(fn, *args)
+			thr = TestThread(interval, fn, *args)
 			thr.start()
 			threads[test_name] = thr
 			last_run[test_name] = t
