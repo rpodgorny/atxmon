@@ -18,6 +18,8 @@ HISTORY_LEN = 10
 app = flask.Flask(__name__)
 data = []
 data_last = {}
+evts = []  # TODO: this is shitty name
+last_vals = {}  # TODO: shitty name
 
 
 # TODO: ugly name, ugly functionality
@@ -26,6 +28,22 @@ def normalize(s):
 #enddef
 
 def load_alerts(fn):
+	ret = []
+	with open(fn, 'r') as f:
+		for line in f:
+			line = line.strip()
+			if not line: continue
+
+			reg_exp, operator, value = line.split(' ')
+			value = int(value)
+
+			ret.append((reg_exp, operator, value))
+		#endfor
+	#endwith
+	return ret
+#enddef
+
+def load_events(fn):
 	ret = []
 	with open(fn, 'r') as f:
 		for line in f:
@@ -115,6 +133,17 @@ def alerts():
 	return flask.render_template('alerts.html', data_last=x)
 #enddef
 
+@app.route('/events'):
+def events():
+	x = []
+	for k, v, t in evts:
+		t = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M:%S')
+		x.append((k, v, t))
+	#endfor
+
+	return flask.render_template('events.html', data_last=x)
+#enddef
+
 @app.route('/show_last/<path:test>')
 def show_last(test):
 	x = []
@@ -136,6 +165,8 @@ class MyThread(threading.Thread):
 	def run(self):
 		logging.info('thread run')
 
+		events = load_events('events.conf')
+
 		while self._run:
 			while data:
 				i = data.pop(0)
@@ -144,6 +175,23 @@ class MyThread(threading.Thread):
 				t = i['time']
 				interval = i['interval']
 				print(k, v, t, interval)
+
+				if v == last_vals.get(k): continue
+					for reg_exp, operator, value in events:
+						if not re.match(reg_exp, k): continue
+
+						if operator == '==':
+							if v != value: continue
+						elif operator == '!=':
+							if v == value: continue
+						else:
+							raise Exception('unknown operator %s' % operator)
+						#endif
+
+						print('new event: %s %s' % (k, v))
+						evts.append((k, v, t))
+					#endfor
+				#endif
 
 				fn = normalize(k)
 
@@ -181,6 +229,8 @@ class MyThread(threading.Thread):
 				cmd = 'rrdtool graph png/%s__1m.png --end now --start end-1M --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
 				print(cmd)
 				subprocess.check_call(cmd, shell=True)
+
+				last_vals[k] = v
 			#endwhile
 
 			time.sleep(1)  # TODO: hard-coded shit
