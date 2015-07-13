@@ -133,7 +133,7 @@ def alerts():
 	return flask.render_template('alerts.html', data_last=x)
 #enddef
 
-@app.route('/events'):
+@app.route('/events')
 def events():
 	x = []
 	for k, v, t in evts:
@@ -176,7 +176,7 @@ class MyThread(threading.Thread):
 				interval = i['interval']
 				print(k, v, t, interval)
 
-				if v == last_vals.get(k): continue
+				if v != last_vals.get(k):
 					for reg_exp, operator, value in events:
 						if not re.match(reg_exp, k): continue
 
