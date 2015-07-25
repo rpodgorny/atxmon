@@ -10,21 +10,44 @@ import logging
 import time
 import os
 import re
+import json
+import pymongo
 
 
 HISTORY_LEN = 10
+GEN_PNG = False
 
 # TODO: globals are shit
 app = flask.Flask(__name__)
+db = pymongo.MongoClient().atxmon
 data = []
 data_last = {}
 evts = []  # TODO: this is shitty name
 last_vals = {}  # TODO: shitty name
 
+# TODO: move this
+db.data.ensure_index('k')
+db.data.ensure_index('t')
+#db.data.ensure_index(['k', 'v'])
+#db.data.ensure_index(['k', 't'])
+#db.data.ensure_index(['k', 'v', 't'])
+
 
 # TODO: ugly name, ugly functionality
 def normalize(s):
 	return s.replace('/', '__').replace(' ', '_').replace(':', '_')
+#enddef
+
+def load_json(fn):
+	with open(fn, 'r') as f:
+		return json.load(f)
+	#endwith
+#enddef
+
+def save_json(data, fn):
+	with open(fn, 'w') as f:
+		return json.dump(data, f, indent=2)
+	#endwith
 #enddef
 
 def load_alerts(fn):
@@ -89,6 +112,8 @@ def save_many():
 		if not k in data_last: data_last[k] = []
 		data_last[k].insert(0, (v, t))
 		data_last[k] = data_last[k][:HISTORY_LEN]
+
+		db.data.insert_one({'k': k, 'v': v, 't': datetime.datetime.fromtimestamp(t)})
 	#endfor
 
 	return 'ok'
@@ -210,25 +235,27 @@ class MyThread(threading.Thread):
 				print(cmd)
 				subprocess.check_call(cmd, shell=True)
 
-				cmd = 'rrdtool graph png/%s__10min.png --end now --start end-10m --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
-				print(cmd)
-				subprocess.check_call(cmd, shell=True)
+				if GEN_PNG:
+					cmd = 'rrdtool graph png/%s__10min.png --end now --start end-10m --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
+					print(cmd)
+					subprocess.check_call(cmd, shell=True)
 
-				cmd = 'rrdtool graph png/%s__1h.png --end now --start end-1h --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
-				print(cmd)
-				subprocess.check_call(cmd, shell=True)
+					cmd = 'rrdtool graph png/%s__1h.png --end now --start end-1h --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
+					print(cmd)
+					subprocess.check_call(cmd, shell=True)
 
-				cmd = 'rrdtool graph png/%s__1d.png --end now --start end-1d --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
-				print(cmd)
-				subprocess.check_call(cmd, shell=True)
+					cmd = 'rrdtool graph png/%s__1d.png --end now --start end-1d --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
+					print(cmd)
+					subprocess.check_call(cmd, shell=True)
 
-				cmd = 'rrdtool graph png/%s__1w.png --end now --start end-1w --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
-				print(cmd)
-				subprocess.check_call(cmd, shell=True)
+					cmd = 'rrdtool graph png/%s__1w.png --end now --start end-1w --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
+					print(cmd)
+					subprocess.check_call(cmd, shell=True)
 
-				cmd = 'rrdtool graph png/%s__1m.png --end now --start end-1M --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
-				print(cmd)
-				subprocess.check_call(cmd, shell=True)
+					cmd = 'rrdtool graph png/%s__1m.png --end now --start end-1M --units-exponent 0 DEF:xxx=rrd/%s.rrd:xxx:AVERAGE LINE2:xxx#FF0000' % (fn, fn, )
+					print(cmd)
+					subprocess.check_call(cmd, shell=True)
+				#endif
 
 				last_vals[k] = v
 			#endwhile
@@ -250,13 +277,32 @@ alerts = load_alerts('alerts.conf')
 def main():
 	logging.basicConfig(level='DEBUG')
 
+	global data, data_last, evts, last_vals
+
+	if os.path.isfile('state.json'):
+		logging.info('loading state from state.json')
+		s = load_json('state.json')
+		data = s.get('data', data)
+		data_last = s.get('data_last', data_last)
+		evts = s.get('evts', evts)
+		last_vals = s.get('last_vals', last_vals)
+	#endif
+
 	thr = MyThread()
 	thr.start()
 
-	app.run(host='::', threaded=True, debug=True)
+	app.run(host='::', threaded=True)
 
 	thr.quit()
 	thr.join()
+
+	logging.info('saving state to state.json')
+	s = {}
+	s['data'] = data
+	s['data_last'] = data_last
+	s['evts'] = evts
+	s['last_vals'] = last_vals
+	save_json(s, 'state.json')
 
 	logging.info('exit')
 #enddef
