@@ -47,6 +47,11 @@ def load_tests(fn):
 #enddef
 
 
+def alive():
+	return {'ok': 1}
+#enddef
+
+
 def load():
 	ret = {}
 
@@ -160,6 +165,7 @@ class TestThread(threading.Thread):
 
 
 TEST_MAP = {
+	'alive': alive,
 	'load': load,
 	'ping': ping,
 	'ping6': ping6,
