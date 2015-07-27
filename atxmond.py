@@ -31,6 +31,8 @@ db.data.ensure_index('t')
 #db.data.ensure_index(['k', 'v'])
 #db.data.ensure_index(['k', 't'])
 #db.data.ensure_index(['k', 'v', 't'])
+db.changes.ensure_index('k')
+db.changes.ensure_index('t')
 
 
 # TODO: ugly name, ugly functionality
@@ -82,20 +84,76 @@ def load_events(fn):
 	return ret
 #enddef
 
+# TODO: factor this out - no connection to atxmon
+def load_zapa(fn):
+	ret = {}
+	with open(fn, 'r') as f:
+		for line in f:
+			line = line.strip()
+			if not line: continue
+			mj, loc = line.split(' ', 1)
+			mj = mj.lower()
+			ret[mj] = loc
+		#endfor
+	#endwith
+	return ret
+#enddef
+
 @app.route('/')
 def index():
 	return 'index'
 #enddef
 
-@app.route('/save_old')
-def save_old():
-	k = flask.request.args.get('k')
-	v = flask.request.args.get('v')
-	t = float(flask.request.args.get('t'))
-	p = (k, v, t)
-	#data.append(p)
-	data_last[k] = (v, t)
-	return str(p)
+'''
+# TODO: factor this out - no connection to atxmon
+@app.route('/zapareport1')
+def zapareport1():
+	zapa = load_zapa('zapa.txt')
+
+	x = []
+	for mj, loc in zapa.items():
+		query = {'k': {'$regex': '.*/ping6/%s\.asterix\.cz/ok' % mj}}
+		#query = {'k': {'$regex': '.*%s.*' % mj}}
+		for doc in db.changes.find(query).sort([('t', 1), ]):
+		#for doc in db.changes.find(query):
+			k = doc['k']
+			v = doc['v']
+			t = doc['t']
+			x.append((mj, loc, k, v, t))
+		#endfor
+	#endfor
+
+	return flask.render_template('zapareport1.html', data_last=x)
+#enddef
+'''
+
+# TODO: factor this out - no connection to atxmon
+@app.route('/zapareport1')
+def zapareport1():
+	zapa = load_zapa('zapa.txt')
+
+	x = []
+	for mj, loc in zapa.items():
+		v_last = None
+		t_last = None
+		query = {'k': {'$regex': '.*/ping6/%s\.asterix\.cz/ok' % mj}}
+		for doc in db.data.find(query).sort([('t', 1), ]):
+			k = doc['k']
+			v = doc['v']
+			t = doc['t']
+
+			if v != v_last:
+				x.append((mj, loc, 'vyp/zap', v, t))
+			elif not t_last or (t - t_last).total_seconds() > 3600:
+				x.append((mj, loc, 'mezera', v, t))
+			#endif
+
+			v_last = v
+			t_last = t
+		#endfor
+	#endfor
+
+	return flask.render_template('zapareport1.html', data_last=x)
 #enddef
 
 @app.route('/save', methods=['GET', 'POST'])
@@ -104,17 +162,6 @@ def save_many():
 	print('will save %s entries' % len(d))
 
 	data.extend(d)
-
-	for i in d:
-		k = i['path']
-		v = i['value']
-		t = i['time']
-		if not k in data_last: data_last[k] = []
-		data_last[k].insert(0, (v, t))
-		data_last[k] = data_last[k][:HISTORY_LEN]
-
-		db.data.insert_one({'k': k, 'v': v, 't': datetime.datetime.fromtimestamp(t)})
-	#endfor
 
 	return 'ok'
 #enddef
@@ -199,9 +246,18 @@ class MyThread(threading.Thread):
 				v = i['value']
 				t = i['time']
 				interval = i['interval']
-				print(k, v, t, interval)
+				print('data', k, v, t, interval)
+
+				db.data.insert_one({'k': k, 'v': v, 't': datetime.datetime.fromtimestamp(t)})
+
+				if not k in data_last: data_last[k] = []
+				data_last[k].insert(0, (v, t))
+				data_last[k] = data_last[k][:HISTORY_LEN]
 
 				if v != last_vals.get(k):
+					print('change', k, v, t, interval)
+					db.changes.insert_one({'k': k, 'v': v, 't': datetime.datetime.fromtimestamp(t)})
+
 					for reg_exp, operator, value in events:
 						if not re.match(reg_exp, k): continue
 
