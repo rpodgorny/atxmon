@@ -1,5 +1,17 @@
 #!/usr/bin/python3
 
+'''
+atxmond.
+
+Usage:
+  atxmond [--zapa]
+
+Options:
+  --zapa  Generate reports for zapa.
+'''
+
+__version__ = '0.0'
+
 import sys
 import flask
 import json
@@ -12,6 +24,7 @@ import os
 import re
 import json
 import pymongo
+import docopt
 
 
 HISTORY_LEN = 10
@@ -331,15 +344,27 @@ class MyThread(threading.Thread):
 alerts = load_alerts('alerts.conf')
 
 def main():
+	args = docopt.docopt(__doc__, version=__version__)
+
 	logging.basicConfig(level='DEBUG')
 
-	global data, data_last, evts, last_vals
+	# TODO: broken
+	'''
+	if args['--zapa']:
+		x = zapareport1()
+		with open('/tmp/zapareport1.html', 'w') as f:
+			f.write(x)
+		#endwith
+		return
+	#endif
+	'''
+
+	global data, evts, last_vals
 
 	if os.path.isfile('state.json'):
 		logging.info('loading state from state.json')
 		s = load_json('state.json')
 		data = s.get('data', data)
-		data_last = s.get('data_last', data_last)
 		evts = s.get('evts', evts)
 		last_vals = s.get('last_vals', last_vals)
 	#endif
