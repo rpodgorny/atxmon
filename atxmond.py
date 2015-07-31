@@ -84,76 +84,9 @@ def load_events(fn):
 	return ret
 #enddef
 
-# TODO: factor this out - no connection to atxmon
-def load_zapa(fn):
-	ret = {}
-	with open(fn, 'r') as f:
-		for line in f:
-			line = line.strip()
-			if not line: continue
-			mj, loc = line.split(' ', 1)
-			mj = mj.lower()
-			ret[mj] = loc
-		#endfor
-	#endwith
-	return ret
-#enddef
-
 @app.route('/')
 def index():
 	return 'index'
-#enddef
-
-'''
-# TODO: factor this out - no connection to atxmon
-@app.route('/zapareport1')
-def zapareport1():
-	zapa = load_zapa('zapa.txt')
-
-	x = []
-	for mj, loc in zapa.items():
-		query = {'k': {'$regex': '.*/ping6/%s\.asterix\.cz/ok' % mj}}
-		#query = {'k': {'$regex': '.*%s.*' % mj}}
-		for doc in db.changes.find(query).sort([('t', 1), ]):
-		#for doc in db.changes.find(query):
-			k = doc['k']
-			v = doc['v']
-			t = doc['t']
-			x.append((mj, loc, k, v, t))
-		#endfor
-	#endfor
-
-	return flask.render_template('zapareport1.html', data_last=x)
-#enddef
-'''
-
-# TODO: factor this out - no connection to atxmon
-@app.route('/zapareport1')
-def zapareport1():
-	zapa = load_zapa('zapa.txt')
-
-	x = []
-	for mj, loc in zapa.items():
-		v_last = None
-		t_last = None
-		query = {'k': {'$regex': '.*/ping6/%s\.asterix\.cz/ok' % mj}}
-		for doc in db.data.find(query).sort([('t', 1), ]):
-			k = doc['k']
-			v = doc['v']
-			t = doc['t']
-
-			if v != v_last:
-				x.append((mj, loc, 'vyp/zap', v, t))
-			elif not t_last or (t - t_last).total_seconds() > 3600:
-				x.append((mj, loc, 'mezera', v, t))
-			#endif
-
-			v_last = v
-			t_last = t
-		#endfor
-	#endfor
-
-	return flask.render_template('zapareport1.html', data_last=x)
 #enddef
 
 @app.route('/save', methods=['GET', 'POST'])
