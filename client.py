@@ -13,7 +13,7 @@ import threading
 import random
 
 
-SERVER_URL = 'http://admiral.podgorny.cz:5000/save'
+SERVER_URL = 'http://atxmon.asterix.cz:5000/save'
 TESTS_FN = 'tests.conf'
 SEND_INTERVAL = 20
 TESTS_MAX = 10  # TODO: rename to THREADS_MAX?
