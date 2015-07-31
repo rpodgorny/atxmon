@@ -1,9 +1,9 @@
 <html>
 <body>
 <table>
-{% for mj, loc, k, v, t in data_last %}
+{% for mj, loc, k, v, state_since, t in data_last %}
 	<tr>
-		<td>{{ mj }}</td><td>{{ loc }}</td><td>{{ k }}</td><td>{{ v }}</td><td>{{ t }}</td>
+		<td>{{ mj }}</td><td>{{ loc }}</td><td>{{ k }}</td><td>{{ v }}</td><td>{{ state_since }}</td><td>{{ t }}</td>
 	</tr>
 {% endfor %}
 </table>
