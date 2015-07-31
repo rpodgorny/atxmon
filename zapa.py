@@ -27,8 +27,8 @@ def load_zapa(fn):
 def zapareport1():
 	zapa = load_zapa('zapa.txt')
 
-	#since = datetime.datetime(2014, 7, 30)
-	since = datetime.datetime.now() - datetime.timedelta(hours=24)
+	since = datetime.datetime(1970, 1, 1)
+	#since = datetime.datetime.now() - datetime.timedelta(hours=24)
 	till = datetime.datetime.now()
 
 	x = []
@@ -59,7 +59,22 @@ def zapareport1():
 			v = doc['v']
 			t = doc['t']
 
-			if v != state:
+			if (t - t_last).total_seconds() > 3600:  # TODO: hard-coded shit
+				if state is None:
+					pass
+				elif v != state:
+					if state is None:
+						logging.debug('unk %s - %s' % (state_since, t))
+						x.append((mj, loc, 'unk', v, state_since, t))
+					elif state == 0:
+						logging.debug('vyp %s - %s' % (state_since, t))
+						x.append((mj, loc, 'vyp', v, state_since, t))
+					#endif
+
+					state = None
+					state_since = t
+				#endif
+			elif v != state:
 				if state is None:
 					logging.debug('unk %s - %s' % (state_since, t))
 					x.append((mj, loc, 'unk', v, state_since, t))
@@ -69,17 +84,6 @@ def zapareport1():
 				#endif
 
 				state = v
-				state_since = t
-			elif (t - t_last).total_seconds() > 3600:  # TODO: hard-coded shit
-				if state is None:
-					logging.debug('unk %s - %s' % (state_since, t))
-					x.append((mj, loc, 'unk', v, state_since, t))
-				elif state == 0:
-					logging.debug('vyp %s - %s' % (state_since, t))
-					x.append((mj, loc, 'vyp', v, state_since, t))
-				#endif
-
-				state = None
 				state_since = t
 			#endif
 
