@@ -1,5 +1,16 @@
 #!/usr/bin/python3
 
+'''
+atxmond.
+
+Usage:
+  atxmond
+
+Options:
+'''
+
+__version__ = '0.0'
+
 import sys
 import flask
 import json
@@ -12,6 +23,7 @@ import os
 import re
 import json
 import pymongo
+import docopt
 
 
 HISTORY_LEN = 10
@@ -21,7 +33,6 @@ GEN_PNG = False
 app = flask.Flask(__name__)
 db = pymongo.MongoClient().atxmon
 data = []
-data_last = {}
 evts = []  # TODO: this is shitty name
 last_vals = {}  # TODO: shitty name
 
@@ -102,9 +113,11 @@ def save_many():
 @app.route('/show')
 def show():
 	x = []
-	for k in sorted(data_last.keys()):
-		v, t = data_last[k][0]
-		t = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M:%S')
+	# TODO: find the actual query to find unique shit
+	for k in db.data.unique(k).sort([('k', 1), ]):
+		doc = db.data.find_one({'k': k})  # TODO: find the last one
+		v = doc['v']
+		t = doc['t']
 		x.append((k, v, t))
 	#endfor
 
@@ -117,10 +130,10 @@ def alerts():
 
 	x = []
 	for reg_exp, operator, value in alerts:
-		for k in sorted(data_last.keys()):
+		for k in sorted(last_vals.keys()):
 			if not re.match(reg_exp, k): continue
 
-			v, t = data_last[k][0]
+			v, t = last_vals[k]
 
 			if operator == '==':
 				if v != value: continue
@@ -152,8 +165,10 @@ def events():
 @app.route('/show_last/<path:test>')
 def show_last(test):
 	x = []
-	for v, t in data_last[test]:
-		t = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M:%S')
+	# TODO: actually show the last HISTORY_LEN ones
+	for doc in db.data.find({'k': test}).sort([('t', 1), ]).limit(HISTORY_LEN):
+		v = doc['v']
+		t = doc['t']
 		x.append((v, t))
 	#endfor
 
@@ -182,10 +197,6 @@ class MyThread(threading.Thread):
 				print('data', k, v, t, interval)
 
 				db.data.insert_one({'k': k, 'v': v, 't': datetime.datetime.fromtimestamp(t)})
-
-				if not k in data_last: data_last[k] = []
-				data_last[k].insert(0, (v, t))
-				data_last[k] = data_last[k][:HISTORY_LEN]
 
 				if v != last_vals.get(k):
 					print('change', k, v, t, interval)
@@ -264,15 +275,16 @@ class MyThread(threading.Thread):
 alerts = load_alerts('alerts.conf')
 
 def main():
+	args = docopt.docopt(__doc__, version=__version__)
+
 	logging.basicConfig(level='DEBUG')
 
-	global data, data_last, evts, last_vals
+	global data, evts, last_vals
 
 	if os.path.isfile('state.json'):
 		logging.info('loading state from state.json')
 		s = load_json('state.json')
 		data = s.get('data', data)
-		data_last = s.get('data_last', data_last)
 		evts = s.get('evts', evts)
 		last_vals = s.get('last_vals', last_vals)
 	#endif
@@ -288,7 +300,6 @@ def main():
 	logging.info('saving state to state.json')
 	s = {}
 	s['data'] = data
-	s['data_last'] = data_last
 	s['evts'] = evts
 	s['last_vals'] = last_vals
 	save_json(s, 'state.json')
